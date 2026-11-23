@@ -99,6 +99,51 @@ mod get_plane_for_neighbour_tests {
   }
 
   #[test]
+  fn head_on_velocity_projects_to_shadow() {
+    let directions = [
+      Vec3::X,
+      Vec3::Y,
+      Vec3::Z,
+      -Vec3::Z,
+      Vec3::new(1.0, -2.0, 3.0).normalize(),
+    ];
+    for direction in directions {
+      let side = direction.any_orthonormal_vector();
+      let neighbour = Agent {
+        position: direction * 10.0,
+        velocity: Vec3::ZERO,
+        radius: 1.0,
+        avoidance_responsibility: 0.0,
+      };
+      // The first speed is at the center of the cut-off sphere.
+      for speed in [1.0, 1.5, 3.0] {
+        for offset in [0.0, 1e-7, 1e-5, 1e-3, 1e-1] {
+          let agent = Agent {
+            position: Vec3::ZERO,
+            velocity: direction * speed + side * offset,
+            radius: 1.0,
+            avoidance_responsibility: 1.0,
+          };
+
+          let plane = agent.get_plane_for_neighbour(
+            &neighbour, /* time_horizon= */ 10.0,
+            /* time_step= */ 1.0,
+          );
+          assert!((plane.normal.length() - 1.0).abs() < 1e-5, "{plane:?}");
+          assert!(
+            plane.signed_distance_to_plane(agent.velocity) < 0.0,
+            "{plane:?}"
+          );
+          // The projected velocity just grazes the neighbour.
+          let closest_distance =
+            neighbour.position.cross(plane.point.normalize()).length();
+          assert!((closest_distance - 2.0).abs() < 1e-3, "{closest_distance}");
+        }
+      }
+    }
+  }
+
+  #[test]
   fn collision_uses_time_step() {
     let agent = Agent {
       position: Vec3::ZERO,
@@ -240,5 +285,41 @@ mod compute_avoiding_velocity {
     // Agents will move in a random direction if they are perfectly on top of
     // one another.
     assert_ne!(avoiding_velocity, Vec3::ZERO);
+  }
+
+  #[test]
+  fn agents_avoid_each_other_if_directly_head_on() {
+    let directions =
+      [Vec3::X, Vec3::Y, Vec3::Z, Vec3::new(1.0, -2.0, 3.0).normalize()];
+    let center = Vec3::new(1.0, 2.0, 3.0);
+    for direction in directions {
+      let agent = Agent {
+        position: center - direction * 5.0,
+        velocity: direction,
+        radius: 1.0,
+        avoidance_responsibility: 1.0,
+      };
+      let other = Agent {
+        position: center + direction * 5.0,
+        velocity: -direction,
+        ..agent.clone()
+      };
+      let compute = |agent: &Agent, other: &Agent| {
+        agent.compute_avoiding_velocity(
+          &[Cow::Borrowed(other)],
+          /* preferred_velocity= */ agent.velocity,
+          /* max_speed= */ 2.0,
+          /* time_step= */ 0.01,
+          &AvoidanceOptions { time_horizon: 10.0 },
+        )
+      };
+
+      // The agents must pick opposite sides.
+      let relative_position = other.position - agent.position;
+      let relative_velocity = compute(&agent, &other) - compute(&other, &agent);
+      let closest_distance =
+        relative_position.cross(relative_velocity.normalize()).length();
+      assert!((closest_distance - 2.0).abs() < 1e-3, "{closest_distance}");
+    }
   }
 }

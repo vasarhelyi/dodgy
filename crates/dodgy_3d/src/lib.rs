@@ -212,47 +212,31 @@ impl Agent {
         // ignore the time_horizon, since the cone is the same regardless of the
         // time horizon.
 
-        // We want to find the normal of the tangent plane. As a simplification,
-        // we will only consider the plane intersecting zero and the
-        // relative_agent_velocity (since the normal of the tangent plane
-        // must be in that plane). Consider a ray passing through
-        // relative_agent_velocity and in the direction of
-        // relative_neighbour_position, and another ray passing through the
-        // origin and in the direction of relative_neighbour_position. This
-        // gives us two parallel lines, and the tangent plane creates a
-        // transversal across them. Using angle rules, we can find that the
-        // triangle between the cutoff sphere center, the origin, and the
-        // tangent plane is a similar triangle to the triangle between the
-        // distance between the rays, the intersection point of the tangent
-        // plane's normal and the relative_agent_velocity ray, and the
-        // projection of that point onto the relative_neighbour_position ray.
-        let tangent_ring_triangle_leg_squared =
-          distance_squared - sum_radius_squared;
-
-        let squared_distance_between_rays = relative_neighbour_position
+        // We want to find the normal of the tangent plane nearest to the
+        // relative velocity. Find the direction from the axis of the cone to
+        // the relative velocity. If the velocity is on the axis, all directions
+        // are equally good, as long as the neighbour uses the opposite one. The
+        // neighbour has the opposite axis, for which `any_orthogonal_vector`
+        // returns the opposite vector.
+        let distance = distance_squared.sqrt();
+        let axis = relative_neighbour_position / distance;
+        let side = axis
           .cross(relative_agent_velocity)
-          .length_squared();
+          .cross(axis)
+          .try_normalize()
+          .unwrap_or_else(|| axis.any_orthogonal_vector().normalize());
 
-        // Use the Pythagorean theorem to solve for the time when the
-        // relative_agent_velocity ray has the "correct" distance from the
-        // origin for where the intersection point should be. The equation is
-        // roughly:
-        // (relative_agent_velocity + t * relative_neighbour_position) ^ 2
-        //   = squared_distance_between_rays / tangent_ring_triangle_leg_squared
+        // Consider the right triangle of zero, the center of the sphere at
+        // `relative_neighbour_position`, and its tangent point. The hypotenuse
+        // has length `distance`, and the leg to the center has length
+        // `sum_radius`. The normal is in the direction of this leg, so it's
+        // composed of the directions `side` and `axis` using the ratios of the
+        // triangle.
+        let tangent_triangle_leg =
+          (distance_squared - sum_radius_squared).sqrt();
+        vo_normal =
+          (side * tangent_triangle_leg - axis * sum_radius) / distance;
 
-        let a = relative_neighbour_position.length_squared();
-        // Note: we *should* multiply this by 2, but we can actually just factor
-        // the two out to skip a few multiplications.
-        let b = relative_neighbour_position.dot(relative_agent_velocity);
-        let c = relative_agent_velocity.length_squared()
-          - squared_distance_between_rays / tangent_ring_triangle_leg_squared;
-        // Always choose the negative solution, since we know the intersection
-        // point must be behind us (since if it was ahead, we should have
-        // projected to the cutoff sphere instead).
-        let t = (-b - (b * b - a * c).sqrt()) / a;
-
-        vo_normal = (relative_agent_velocity + t * relative_neighbour_position)
-          .normalize_or_zero();
         let distance_to_plane = Plane { normal: vo_normal, point: Vec3::ZERO }
           .signed_distance_to_plane(relative_agent_velocity);
         inside_vo = distance_to_plane < 0.0;
