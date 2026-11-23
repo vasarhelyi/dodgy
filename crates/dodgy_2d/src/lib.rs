@@ -322,12 +322,14 @@ impl Agent {
         // `relative_position`.
 
         // Determine whether the relative velocity is nearer the left or right
-        // side of the shadow.
-        let tangent_side = determinant(
+        // side of the shadow. Note `signum` distinguishes positive and negative
+        // zero, which would make agents that are directly head-on pick the same
+        // side. So we use explicit comparison instead.
+        let tangent_determinant = determinant(
           relative_neighbour_position,
           cutoff_circle_center_to_relative_velocity,
-        )
-        .signum();
+        );
+        let tangent_side = if tangent_determinant >= 0.0 { 1.0 } else { -1.0 };
 
         // Compute the shadow direction using the tangent triangle legs, and
         // make sure to use the correct orientation of that direction (the

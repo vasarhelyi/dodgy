@@ -274,6 +274,60 @@ mod compute_avoiding_velocity_tests {
   }
 
   #[test]
+  fn agents_avoid_each_other_if_directly_head_on() {
+    let directions = [
+      Vec2::X,
+      Vec2::Y,
+      Vec2::NEG_X,
+      Vec2::NEG_Y,
+      Vec2::new(1.0, -2.0).normalize(),
+    ];
+    // The signs of the zeros must not matter.
+    let centers =
+      [Vec2::new(0.0, 0.0), Vec2::new(0.0, -0.0), Vec2::new(1.0, 2.0)];
+    for direction in directions {
+      for center in centers {
+        let agent = Agent {
+          position: center - direction * 5.0,
+          velocity: direction,
+          radius: 1.0,
+          avoidance_responsibility: 1.0,
+        };
+        let other = Agent {
+          position: center + direction * 5.0,
+          velocity: -direction,
+          ..agent.clone()
+        };
+        let compute = |agent: &Agent, other: &Agent| {
+          agent.compute_avoiding_velocity(
+            &[Cow::Borrowed(other)],
+            &[],
+            /* preferred_velocity= */ agent.velocity,
+            /* max_speed= */ 2.0,
+            /* time_step= */ 0.01,
+            &AvoidanceOptions {
+              obstacle_margin: 0.0,
+              time_horizon: 10.0,
+              obstacle_time_horizon: 1.0,
+            },
+          )
+        };
+
+        // The agents must pick opposite sides.
+        let relative_position = other.position - agent.position;
+        let relative_velocity =
+          compute(&agent, &other) - compute(&other, &agent);
+        let closest_distance =
+          determinant(relative_position, relative_velocity.normalize()).abs();
+        assert!(
+          (closest_distance - 2.0).abs() < 1e-3,
+          "{direction} {center} {closest_distance}"
+        );
+      }
+    }
+  }
+
+  #[test]
   fn does_not_panic_for_parallel_constraints() {
     // This is a situation where, due to floating point errors, the obstacle
     // lines are parallel, but it is not detected. Ideally we would solve this,
